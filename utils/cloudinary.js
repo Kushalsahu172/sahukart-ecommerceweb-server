@@ -6,3 +6,6 @@ const upload = cloudinary.config({
     api_secret: process.env.cloudinary_Config_api_secret,
     secure: true
 });
+
+
+module.exports = upload;
