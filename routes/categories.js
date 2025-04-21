@@ -4,6 +4,8 @@ const express = require('express');
 const router = express.Router();
 const multer  = require('multer');
 const slugify = require("slugify");
+const streamifier = require('streamifier');
+
 
 const fs = require("fs");
 
@@ -18,34 +20,32 @@ cloudinary.config({
 
 var imagesArr=[];
 
-const storage = multer.diskStorage({
+// memory storage instead of disk
+const storage = multer.memoryStorage();
+const upload = multer({ storage });
 
-    destination: function (req, file, cb) {
-      cb(null, "uploads");
-    },
-    filename: function (req, file, cb) {
-      cb(null, `${Date.now()}_${file.originalname}`);
-    },
-  })
+router.post('/upload', upload.array('images'), async (req, res) => {
+    imagesArr = [];
 
-  const upload = multer({ storage: storage })
+    try {
+        for (const file of req.files) {
+            const buffer = file.buffer;
 
-  router.post(`/upload`, upload.array("images"), async (req, res) => {
-    imagesArr=[];
-    try{
-
-        for (let i = 0; i < req?.files?.length; i++) {
-            const options = {
-                use_filename: true,
-                unique_filename: false,
-                overwrite: false,
+            const uploadFromBuffer = () => {
+                return new Promise((resolve, reject) => {
+                    const stream = cloudinary.uploader.upload_stream(
+                        { folder: 'categories' }, // Optional: you can change the folder
+                        (error, result) => {
+                            if (error) return reject(error);
+                            return resolve(result);
+                        }
+                    );
+                    streamifier.createReadStream(buffer).pipe(stream);
+                });
             };
 
-            const img = await cloudinary.uploader.upload(req.files[i].path, options,
-                function (error, result) {
-                    imagesArr.push(result.secure_url);
-                    fs.unlinkSync(`uploads/${req.files[i].filename}`);
-                });
+            const result = await uploadFromBuffer();
+            imagesArr.push(result.secure_url);
         }
 
         let imagesUploaded = new ImageUpload({
@@ -54,12 +54,15 @@ const storage = multer.diskStorage({
 
         imagesUploaded = await imagesUploaded.save();
         return res.status(200).json(imagesArr);
-
-    }catch(error){
-        console.log(error);
+    } catch (error) {
+        console.error(error);
+        return res.status(500).json({
+            message: "Something went wrong while uploading to Cloudinary.",
+            error: error.message,
+        });
     }
+});
 
-  });
 
 
 const createCategories = (categories, parentId=null) => {
